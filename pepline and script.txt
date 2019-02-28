@@ -1,0 +1,194 @@
+#Bioinformatics pipeline for 16S rRNA amplifications sequencing analysis
+#QIIME (v1.7)
+echo "reads of V9_project.fna: "
+grep ">" V9_project.fna | wc -l
+parallel_align_seqs_pynast.py -i V9_project.fna -o pynast_align_1/ -t core_set_aligned.fasta.imputed -a uclust -e 100
+cd pynast_align_1/
+echo "reads of V9_project_aligned.fasta: "
+grep ">" V9_project_aligned.fasta | wc -l
+echo "reads of V9_project_failures.fasta: "
+grep ">" V9_project_failures.fasta | wc -l
+sed 's/-//g' V9_project_aligned.fasta > Seqs_neimeng_all_final_aligned_no_gap_V9_project.fasta
+echo "reads of Seqs_neimeng_all_final_aligned_no_gap_V9_project.fasta: "
+grep ">" Seqs_neimeng_all_final_aligned_no_gap_V9_project.fasta | wc -l
+cp Seqs_neimeng_all_final_aligned_no_gap_V9_project.fasta ../
+cd ..
+pick_otus.py -i Seqs_neimeng_all_final_aligned_no_gap_V9_project.fasta -m uclust -s 1.00 -o 0.3uclust_otu_100/
+cd 0.3uclust_otu_100
+mv Seqs_neimeng_all_final_aligned_no_gap_V9_project_clusters.uc uclust_otu_100_cluster.uc
+mv Seqs_neimeng_all_final_aligned_no_gap_V9_project_otus.txt uclust_otu_100.txt
+mv Seqs_neimeng_all_final_aligned_no_gap_V9_project_otus.log uclust_otu_100_log.txt
+pick_rep_set.py -i uclust_otu_100.txt -f ../Seqs_neimeng_all_final_aligned_no_gap_V9_project.fasta -o uclust_otu_100_rep_set_first.fna
+wc -l uclust_otu_100.txt
+wc -l uclust_otu_100_rep_set_first.fna
+echo "reads of uclust_otu_100_rep_set_first.fna: "
+grep ">" uclust_otu_100_rep_set_first.fna |wc -l
+cd ..
+pick_otus.py -i 0.3uclust_otu_100/uclust_otu_100_rep_set_first.fna -s 0.97 -o 0.4uclust_otu_97/
+merge_otu_maps.py -i 0.3uclust_otu_100/uclust_otu_100.txt,0.4uclust_otu_97/uclust_otu_100_rep_set_first_otus.txt -o 0.4uclust_otu_97/uclust_otus_100_97_merged.txt
+pick_rep_set.py -i 0.4uclust_otu_97/uclust_otus_100_97_merged.txt -f Seqs_neimeng_all_final_aligned_no_gap_V9_project.fasta -o uclust_otus_100_97_merged_rep_set.fasta
+mkdir 0.5rep_set
+mv uclust_otus_100_97_merged_rep_set.fasta 0.5rep_set/
+parallel_align_seqs_pynast.py -i 0.5rep_set/uclust_otus_100_97_merged_rep_set.fasta -o 0.5rep_set/ -t core_set_aligned.fasta.imputed -a uclust -e 100
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned.fasta.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned.fasta |wc -l
+echo "reads of uclust_otus_100_97_merged_rep_set.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set.fasta |wc -l
+cp core_set_aligned.fasta.imputed 0.5rep_set/
+cd 0.5rep_set/
+identify_chimeric_seqs.py -i uclust_otus_100_97_merged_rep_set_aligned.fasta -a core_set_aligned.fasta.imputed -o chimeric_seq.txt
+cd  ..
+filter_fasta.py -f 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned.fasta -o uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta -s 0.5rep_set/chimeric_seq.txt -n
+mv uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta 0.5rep_set/
+sed 's/-//g' 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta > 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta
+wc -l 0.5rep_set/chimeric_seq.txt
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta |wc -l
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta: "
+grep ">" 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta |wc -l
+parallel_assign_taxonomy_rdp.py -i 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap.fasta -o 0.6rdp_assigned_taxonomy/ -c 0.8
+make_otu_table.py -i 0.4uclust_otu_97/uclust_otus_100_97_merged.txt -o 0.6rdp_assigned_taxonomy/otu_table.txt -e 0.5rep_set/chimeric_seq.txt -t 0.6rdp_assigned_taxonomy/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_no_gap_tax_assignments.txt
+cd 0.6rdp_assigned_taxonomy/
+convert_biom.py -i otu_table.txt -o otu_table1.txt -b --header_key taxonomy
+max_reads=`awk -F "\t" '{for(i=2;i<NF;i++)a[i]+=$i}END{for(i=2;i<NF;i++)print a[i]}' otu_table1.txt | sort -n| tail -1`
+min_reads=`awk -F "\t" '{for(i=2;i<NF;i++)a[i]+=$i}END{for(i=2;i<NF;i++)print a[i]}' otu_table1.txt | sort -n| head -1`
+awk -F '\t' '{print $NF}' otu_table1.txt > taxonomy.txt
+cd ..
+filter_alignment.py -i 0.5rep_set/uclust_otus_100_97_merged_rep_set_aligned_no_chimera.fasta -o 0.7fasttree_phylogeny/ -m /home/qiime/lanemask_in_1s_and_0s  -g 0.9999999
+wc -l 0.7fasttree_phylogeny/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta 
+echo "reads of uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta: "
+grep ">" 0.7fasttree_phylogeny/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta |wc -l
+make_phylogeny.py -i 0.7fasttree_phylogeny/uclust_otus_100_97_merged_rep_set_aligned_no_chimera_pfiltered.fasta -o 0.7fasttree_phylogeny/fasttree.tre -l 0.7fasttree_phylogeny/fasttree.log -t fasttree
+multiple_rarefactions_even_depth.py -i 0.6rdp_assigned_taxonomy/otu_table.txt -o 0.8multiple_rarefactions_1000/ -d $min_reads -n 1000 -k
+cp zhuanhua.sh ./0.8multiple_rarefactions_1000
+cp merge.R ./0.8multiple_rarefactions_1000
+cd 0.8multiple_rarefactions_1000
+sed 's/[0-9][0-9][0-9][0-9]/'$min_reads'/g' zhuanhua.sh > zhuanhua1.sh
+sh zhuanhua1.sh
+Rscript merge.R
+head -n 2 rarefaction_0.txt > head.txt
+cat head.txt merge.txt > head_merge.txt
+paste -d "\t" head_merge.txt ../0.6rdp_assigned_taxonomy/taxonomy.txt > otu_table.taxonomy.txt
+convert_biom.py -i otu_table.taxonomy.txt -o otu_table.from_txt.biom --biom_table_type="otu table" --process_obs_metadata taxonomy
+mv otu_table.from_txt.biom ../
+cd ..
+beta_diversity_through_plots.py -i otu_table.from_txt.biom -m beta_diversity_mapping_file_20111111.txt -o beta_diversity/ -p beta_diversity_qiime_parameters.txt -t 0.7fasttree_phylogeny/fasttree.tre -a
+cd beta_diversity/
+mkdir 3d_plots_continuous/
+mkdir 3d_plots_discrete/
+mv *_3d_continuous/*/*.kin 3d_plots_continuous/
+mv *_3d_discrete/*/*.kin 3d_plots_discrete/
+mkdir distance_matrix/
+mkdir pcoa/
+mv *pc.txt pcoa/
+rm -fr *_3d_*/
+mkdir distance_matrix
+mv *_dm.txt distance_matrix/
+upgma_cluster.py -i distance_matrix/ -o upgma_cluster/
+cd ..
+parallel_multiple_rarefactions.py -i 0.6rdp_assigned_taxonomy/otu_table.txt -o 01.multiple_rare/ -m 10 -x $max_reads -s 100 -n 500 -O 30
+parallel_alpha_diversity.py -i 01.multiple_rare/ -o 02.alpha_div/ -m chao1,chao1_confidence,observed_species,shannon,simpson,PD_whole_tree -O 30 -t 0.7fasttree_phylogeny/fasttree.tre
+collate_alpha.py -i 02.alpha_div/ -o results/ -e 02.alpha_div/alpha_rarefaction_10_0.txt
+
+#Bioinformatics software for metagenomic sequencing analysis
+For triming: FastQC v0.11
+For host's genome removing: Bowtie2
+For assembling: IDBA-UD
+For gene predicting: MetaGeneMark
+For gene catalogue constructing: CD-HIT
+For gene abundance tabel constructing: Bowtie2
+For metagenomic species bing: MGS_cc.bin
+For KEGG anotation: BLAST
+
+#The R code used in present research
+#For PCoA figure constructing:
+extract_letter <- function(x){
+  B<-strsplit(x,"") 
+  C<-""
+  for (i in 1:length(B[[1]])){
+    if (is.na(as.numeric(B[[1]][i]))){
+      C <- paste(C,B[[1]][i],sep="")
+    }
+    else{
+      break
+    }
+  }
+  return(C)
+}
+setwd("C:/Users/zhjch/Desktop")
+all <- read.table("123.txt",head=T,sep="\t",as.is=TRUE)
+A <- all[1:(nrow(all) - 2), 1]
+for (i in 1:(nrow(all) - 2)){
+  A[i] <- extract_letter(A[i])
+}
+A <- as.factor(A)
+X <- all[1:(nrow(all) - 2),2]
+Y <- all[1:(nrow(all) - 2),3]
+pcoa1<-round(all[nrow(all),2],2)
+pcoa2<-round(all[nrow(all),3],2)
+ALL1<-data.frame(A,X,Y)
+library(ggplot2)
+ggplot(ALL1,aes(x=X,y=Y,size=3,colour=A))+geom_point(alpha = .6)+scale_size_area()+scale_colour_manual(values = c("deeppink", "seagreen2"),labels = c("PO", "CO"))+xlab(paste("PCoA1(",pcoa1,"%)",sep=""))+ylab(paste("PCoA2(",pcoa2,"%)",sep=""))
+
+#For box plot constructing:
+library("ggpubr")
+setwd("C:/Users/zhjch/Desktop")
+ToothGrowth = read.table("123.txt",header=T,sep="\t")
+p <- ggboxplot(ToothGrowth, x="supp", y="len", color = "supp", palette = "jco", add = "jitter", facet.by = "State", short.panel.labs = FALSE)
+p+stat_compare_means(label = "p.format")
+
+#For pathway bubble plot constructing:
+library("ggplot2", lib.loc="~/R/win-library/3.2")
+setwd("C:/Users/Administrator/Desktop")
+pathway = read.table("123.txt",header=T,sep="\t")
+pp = ggplot(pathway,aes(richFactor,Pathway))
+pp + geom_point()
+pp + geom_point(aes(size=R0vsR3))
+pbubble = pp + geom_point(aes(size=R0vsR3,color=Qvalue))
+pbubble + scale_colour_gradient(low="deeppink",high="seagreen2")
+
+#For Sankey diagram constructing:
+nodes = data.frame(ID = c("A", "B","C","D","E","F","G"), x = c(1, 2, 3, 4, 5, 6, 7), y = c(1, 3, 2, 3, 2, 3, 2), stringsAsFactors = FALSE)
+rownames(nodes)=nodes$ID
+edges = data.frame(N1 = c("A","B","A","D","A","F"), N2 = c("B","C","D","E","F","G"), Value = c(7.08,6.37,6.93,5.89,6.74,5.73), stringsAsFactors = F)
+
+library("riverplot", lib.loc="~/R/win-library/3.4")
+library(RColorBrewer)
+library(RColorBrewer)
+palette = paste0(brewer.pal(8, "Set1"), "60")
+styles = lapply(nodes$x, function(n) {list(col = palette[n+1], lty = 0, textcol = "black")})  
+names(styles) = nodes$ID
+rp <- list(nodes = nodes, edges = edges, styles = styles)
+class(rp) <- c(class(rp), "riverplot")
+plot(rp, plot_area = 0.8, yscale=0.14) 
+
+nodes = data.frame(ID = c("A", "B","C","D","E","F","G"), x = c(1, 2, 3, 4, 5, 6, 7), y = c(1, 3, 2, 3, 2, 3, 2), stringsAsFactors = FALSE)
+rownames(nodes)=nodes$ID
+edges = data.frame(N1 = c("A","B","A","D","A","F"), N2 = c("B","C","D","E","F","G"), Value = c(3.37,0.42,2.46,0.01,2.90,0.01), stringsAsFactors = F)
+
+library("riverplot", lib.loc="~/R/win-library/3.4")
+library(RColorBrewer)
+library(RColorBrewer)
+palette = paste0(brewer.pal(7, "Set3"), "60")
+styles = lapply(nodes$x, function(n) {list(col = palette[n+1], lty = 0, textcol = "black")})  
+names(styles) = nodes$ID
+rp <- list(nodes = nodes, edges = edges, styles = styles)
+class(rp) <- c(class(rp), "riverplot")
+plot(rp, plot_area = 0.8, yscale=0.14) 
+
+#For Heatmap constructing:
+library(pheatmap)
+setwd("C:/Users/Administrator/Desktop")
+pheatmap(all,cellwidth=12,cellheight=12,fontsize_row=12,fontsize_col=12,cluster_cols=F,cluster_row=F,color = colorRampPalette(c("black", "lightgoldenrod1", "orangered3"))(20), filename="cc723.pdf")
+
+
+
+
+
+
+
+
+
+
+
+
